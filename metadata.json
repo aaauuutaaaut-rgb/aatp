@@ -1,0 +1,6 @@
+{
+  "name": "Auto Threads",
+  "description": "A sleek, single dashboard to connect and automate multiple Threads accounts. Control posting, schedule threads, coordinate likes, and manage comments in one clean Threads-inspired interface.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
