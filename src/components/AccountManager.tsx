@@ -33,16 +33,37 @@ export default function AccountManager({ accounts, onAddAccount, onRemoveAccount
 
     try {
       const redirectUri = `${window.location.origin}/auth/callback`;
-      // Append timestamp parameter to bypass cache and guarantee a fresh OAuth session request
-      const response = await fetch(`/api/threads/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&t=${Date.now()}`);
       
+      // Retry fetch up to 3 times in case server is cold starting
+      let response: Response | null = null;
+      let lastError: Error | null = null;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          response = await fetch(`/api/threads/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&t=${Date.now()}`);
+          if (response.ok) break;
+        } catch (err: any) {
+          lastError = err;
+        }
+        if (attempt < 3) {
+          await new Promise((res) => setTimeout(res, 1000));
+        }
+      }
+
+      if (!response) {
+        throw new Error(lastError?.message || 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง');
+      }
+
       const contentType = response.headers.get('content-type') || '';
       let data: any = {};
       if (contentType.includes('application/json')) {
         data = await response.json();
       } else {
         const rawText = await response.text();
-        throw new Error(`เซิร์ฟเวอร์ตอบกลับรูปแบบไม่ถูกต้อง (HTTP ${response.status}): ${rawText.slice(0, 120)}`);
+        if (response.status === 404) {
+          throw new Error('เซิร์ฟเวอร์ยังไม่พร้อมใช้งานชั่วคราว (HTTP 404) กรุณากดลองอีกครั้งในอีกสักครู่');
+        }
+        throw new Error(`เซิร์ฟเวอร์ตอบกลับรูปแบบไม่ถูกต้อง (HTTP ${response.status}): ${rawText.slice(0, 100)}`);
       }
 
       if (!response.ok) {
