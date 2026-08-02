@@ -2,6 +2,16 @@ import express from "express";
 import path from "path";
 import "dotenv/config";
 
+// Helper to safely parse response as JSON or throw a clear error message
+async function safeParseJsonResponse(response: Response, sourceName: string): Promise<any> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`${sourceName} ตอบกลับข้อความที่ไม่ใช่ JSON (HTTP ${response.status}): ${text.slice(0, 150)}`);
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -140,7 +150,7 @@ async function startServer() {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
-      const tokenData = await tokenResponse.json() as any;
+      const tokenData = await safeParseJsonResponse(tokenResponse, "Threads Token Exchange API");
 
       if (!tokenResponse.ok) {
         throw new Error(tokenData.error_message || tokenData.error?.message || "ล้มเหลวในการแลกเปลี่ยน Token กับ Threads");
@@ -152,14 +162,14 @@ async function startServer() {
       // 2. Exchange short-lived token for a long-lived token (60 days)
       const longLivedUrl = `https://graph.threads.net/access_token?grant_type=th_exchange_token&client_secret=${clientSecret}&access_token=${shortLivedToken}`;
       const longLivedResponse = await fetch(longLivedUrl);
-      const longLivedData = await longLivedResponse.json() as any;
+      const longLivedData = await safeParseJsonResponse(longLivedResponse, "Threads Exchange Long-lived Token API");
 
       const accessToken = longLivedData.access_token || shortLivedToken;
 
       // 3. Fetch user profile information using the Threads Graph API
       const profileUrl = `https://graph.threads.net/v1.0/me?fields=id,username,name,threads_profile_picture_url&access_token=${accessToken}`;
       const profileResponse = await fetch(profileUrl);
-      const profileData = await profileResponse.json() as any;
+      const profileData = await safeParseJsonResponse(profileResponse, "Threads User Profile API");
 
       if (!profileResponse.ok) {
         throw new Error(profileData.error?.message || "ล้มเหลวในการดึงโปรไฟล์ Threads");
@@ -269,7 +279,7 @@ async function startServer() {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
-      const createData = await createRes.json() as any;
+      const createData = await safeParseJsonResponse(createRes, "Threads Create Container API");
 
       if (!createRes.ok) {
         const errMsg = createData.error?.message || createData.error_message || "ไม่สามารถสร้างเนื้อหาได้";
@@ -294,7 +304,7 @@ async function startServer() {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
-      const publishData = await publishRes.json() as any;
+      const publishData = await safeParseJsonResponse(publishRes, "Threads Publish Container API");
 
       if (!publishRes.ok) {
         const errMsg = publishData.error?.message || publishData.error_message || "ไม่สามารถสั่งเผยแพร่ได้";
