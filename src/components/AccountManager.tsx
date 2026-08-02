@@ -35,7 +35,15 @@ export default function AccountManager({ accounts, onAddAccount, onRemoveAccount
       const redirectUri = `${window.location.origin}/auth/callback`;
       // Append timestamp parameter to bypass cache and guarantee a fresh OAuth session request
       const response = await fetch(`/api/threads/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&t=${Date.now()}`);
-      const data = await response.json();
+      
+      const contentType = response.headers.get('content-type') || '';
+      let data: any = {};
+      if (contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const rawText = await response.text();
+        throw new Error(`เซิร์ฟเวอร์ตอบกลับรูปแบบไม่ถูกต้อง (HTTP ${response.status}): ${rawText.slice(0, 120)}`);
+      }
 
       if (!response.ok) {
         if (data.error === 'credentials_missing') {
