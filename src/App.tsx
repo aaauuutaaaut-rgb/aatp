@@ -105,28 +105,31 @@ export default function App() {
   // Listen for real Threads OAuth login success event from popup window
   useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {
-      // Validate origin to ensure it matches current run environment
-      const origin = event.origin;
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
-        return;
-      }
+      try {
+        if (!event.data || typeof event.data !== 'object') return;
+        const origin = event.origin || '';
+        if (origin && !origin.endsWith('.run.app') && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+          return;
+        }
 
-      if (event.data?.type === 'THREADS_AUTH_SUCCESS' && event.data?.account) {
-        const newAcc = event.data.account;
+        if (event.data?.type === 'THREADS_AUTH_SUCCESS' && event.data?.account) {
+          const newAcc = event.data.account;
 
-        setAccounts((prev) => {
-          // Prevent duplicates by filter username/id
-          const cleanPrev = prev.filter(
-            (a) => a.id !== newAcc.id && a.username.toLowerCase() !== newAcc.username.toLowerCase()
+          setAccounts((prev) => {
+            const cleanPrev = prev.filter(
+              (a) => a.id !== newAcc.id && a.username.toLowerCase() !== newAcc.username.toLowerCase()
+            );
+            return [...cleanPrev, newAcc];
+          });
+
+          addLog(
+            'system',
+            'success',
+            `[Official OAuth] เชื่อมต่อกับบัญชี Threads จริงสำเร็จ: ${newAcc.username} (${newAcc.displayName})`
           );
-          return [...cleanPrev, newAcc];
-        });
-
-        addLog(
-          'system',
-          'success',
-          `[Official OAuth] เชื่อมต่อกับบัญชี Threads จริงสำเร็จ: ${newAcc.username} (${newAcc.displayName})`
-        );
+        }
+      } catch (err) {
+        console.error('OAuth postMessage handling error:', err);
       }
     };
 
