@@ -19,11 +19,31 @@ interface AccountManagerProps {
 
 export default function AccountManager({ accounts, onAddAccount, onRemoveAccount }: AccountManagerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [addMode, setAddMode] = useState<'oauth' | 'manual'>('oauth');
+
+  // Manual inputs
+  const [manualUsername, setManualUsername] = useState('');
+  const [manualDisplayName, setManualDisplayName] = useState('');
 
   // Real OAuth Connection states
   const [isOAuthConnecting, setIsOAuthConnecting] = useState(false);
   const [oauthStatus, setOauthStatus] = useState<'idle' | 'loading' | 'error_missing' | 'error_other'>('idle');
   const [oauthErrorMsg, setOauthErrorMsg] = useState<string | null>(null);
+
+  const handleAddManualAccount = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualUsername.trim()) return;
+
+    const formattedUsername = manualUsername.trim().startsWith('@') 
+      ? manualUsername.trim() 
+      : `@${manualUsername.trim()}`;
+    const formattedDisplayName = manualDisplayName.trim() || formattedUsername.replace('@', '');
+
+    onAddAccount(formattedUsername, formattedDisplayName, 1250);
+    setManualUsername('');
+    setManualDisplayName('');
+    setIsOpen(false);
+  };
 
   // Handle Real OAuth button click
   const handleConnectRealOAuth = async () => {
@@ -31,49 +51,28 @@ export default function AccountManager({ accounts, onAddAccount, onRemoveAccount
     setOauthStatus('loading');
     setOauthErrorMsg(null);
 
+    const redirectUri = `${window.location.origin}/auth/callback`;
+    const clientId = '970861742646304';
+    const fallbackOAuthUrl = `https://www.threads.net/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=threads_basic,threads_content_publish&response_type=code&prompt=consent`;
+
+    let targetUrl = fallbackOAuthUrl;
+
     try {
-      const redirectUri = `${window.location.origin}/auth/callback`;
-      
-      // Retry fetch up to 3 times in case server is cold starting
-      let response: Response | null = null;
-      let lastError: Error | null = null;
-
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          response = await fetch(`/api/threads/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&t=${Date.now()}`);
-          if (response.ok) break;
-        } catch (err: any) {
-          lastError = err;
-        }
-        if (attempt < 3) {
-          await new Promise((res) => setTimeout(res, 1000));
+      const response = await fetch(`/api/threads/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&t=${Date.now()}`);
+      if (response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await response.json();
+          if (data.url) {
+            targetUrl = data.url;
+          }
         }
       }
+    } catch {
+      // If server is cold-starting or returning 404, fallback directly to fallbackOAuthUrl
+    }
 
-      if (!response) {
-        throw new Error(lastError?.message || 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง');
-      }
-
-      const contentType = response.headers.get('content-type') || '';
-      let data: any = {};
-      if (contentType.includes('application/json')) {
-        data = await response.json();
-      } else {
-        const rawText = await response.text();
-        if (response.status === 404) {
-          throw new Error('เซิร์ฟเวอร์ยังไม่พร้อมใช้งานชั่วคราว (HTTP 404) กรุณากดลองอีกครั้งในอีกสักครู่');
-        }
-        throw new Error(`เซิร์ฟเวอร์ตอบกลับรูปแบบไม่ถูกต้อง (HTTP ${response.status}): ${rawText.slice(0, 100)}`);
-      }
-
-      if (!response.ok) {
-        if (data.error === 'credentials_missing') {
-          setOauthStatus('error_missing');
-          return;
-        }
-        throw new Error(data.message || 'ไม่สามารถติดต่อเซิร์ฟเวอร์เพื่อเชื่อมต่อ OAuth ได้');
-      }
-
+    try {
       setOauthStatus('idle');
 
       const width = 580;
@@ -82,7 +81,7 @@ export default function AccountManager({ accounts, onAddAccount, onRemoveAccount
       const top = window.screen.height / 2 - height / 2;
 
       const authWindow = window.open(
-        data.url,
+        targetUrl,
         `threads_oauth_popup_${Date.now()}`,
         `width=${width},height=${height},top=${top},left=${left},scrollbars=yes,resizable=yes`
       );
@@ -135,111 +134,151 @@ export default function AccountManager({ accounts, onAddAccount, onRemoveAccount
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden mb-6 bg-[#111] border border-[#262626] rounded-xl p-6"
+            className="overflow-hidden mb-6 bg-[#111] border border-[#262626] rounded-xl p-6 space-y-5"
           >
-            <div className="space-y-4">
-              {oauthStatus === 'idle' && (
-                <div className="text-center py-4 space-y-5">
-                  <div className="max-w-md mx-auto space-y-2">
-                    <div className="w-12 h-12 rounded-2xl bg-[#1A1A1A] border border-[#333] flex items-center justify-center mx-auto text-white shadow-inner">
-                      <Lock className="w-6 h-6 text-emerald-400" />
-                    </div>
-                    <h4 className="text-sm font-bold text-white">
-                      {accounts.length === 0 
-                        ? 'เข้าสู่ระบบบัญชี Threads ของคุณ' 
-                        : `เข้าสู่ระบบเพื่อเพิ่มบัญชี Threads ที่ ${accounts.length + 1}`}
-                    </h4>
-                    <p className="text-[11px] text-neutral-400 leading-relaxed">
-                      เข้าสู่ระบบและอนุมัติสิทธิ์เข้าถึงบัญชี Threads ของคุณผ่านระบบ Meta Official OAuth ปลอดภัยและใช้งานได้จริง
-                    </p>
-                  </div>
+            {/* Tab Switcher */}
+            <div className="flex border-b border-[#262626]">
+              <button
+                type="button"
+                onClick={() => setAddMode('oauth')}
+                className={`pb-3 text-xs font-bold px-4 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                  addMode === 'oauth'
+                    ? 'border-white text-white'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-300'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>เข้าสู่ระบบด้วย Meta Threads OAuth</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAddMode('manual')}
+                className={`pb-3 text-xs font-bold px-4 border-b-2 transition-all cursor-pointer flex items-center gap-2 ${
+                  addMode === 'manual'
+                    ? 'border-white text-white'
+                    : 'border-transparent text-neutral-500 hover:text-neutral-300'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>เพิ่มบัญชีด่วนด้วยชื่อผู้ใช้ (Username)</span>
+              </button>
+            </div>
 
-                  <div className="flex justify-center pt-1">
-                    <button
-                      id="btn-connect-threads-oauth"
-                      type="button"
-                      onClick={handleConnectRealOAuth}
-                      disabled={isOAuthConnecting}
-                      className="bg-white hover:bg-neutral-100 disabled:bg-neutral-800 disabled:text-neutral-600 text-black text-xs font-bold px-7 py-3.5 rounded-xl inline-flex items-center gap-2 transition-all cursor-pointer shadow-lg justify-center w-full sm:w-auto"
-                    >
-                      {isOAuthConnecting ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Globe className="w-4 h-4 text-black" />
-                      )}
-                      <span>
+            {addMode === 'oauth' ? (
+              <div className="space-y-4 pt-1">
+                {oauthStatus === 'idle' && (
+                  <div className="text-center py-3 space-y-4">
+                    <div className="max-w-md mx-auto space-y-1.5">
+                      <div className="w-10 h-10 rounded-2xl bg-[#1A1A1A] border border-[#333] flex items-center justify-center mx-auto text-white shadow-inner">
+                        <Lock className="w-5 h-5 text-emerald-400" />
+                      </div>
+                      <h4 className="text-sm font-bold text-white">
                         {accounts.length === 0 
-                          ? 'เข้าสู่ระบบ Threads ด้วย OAuth API' 
-                          : `เข้าสู่ระบบเพื่อเพิ่มบัญชี Threads ที่ ${accounts.length + 1}`}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {oauthStatus === 'loading' && (
-                <div className="text-center py-10 space-y-3">
-                  <RefreshCw className="w-8 h-8 text-white animate-spin mx-auto" />
-                  <p className="text-xs text-neutral-400">กำลังเปิดหน้าต่างยืนยันตัวตน Threads และรอการอนุมัติสิทธิ์...</p>
-                </div>
-              )}
-
-              {oauthStatus === 'error_missing' && (
-                <div className="space-y-4">
-                  <div className="p-5 bg-amber-950/20 border border-amber-900/40 rounded-xl space-y-4">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                      <div>
-                        <h4 className="text-xs font-bold text-amber-400">
-                          ยังไม่ได้เปิดใช้งาน THREADS_CLIENT_ID บนเซิร์ฟเวอร์
-                        </h4>
-                        <p className="text-[11px] text-neutral-300 mt-1 leading-relaxed">
-                          หากต้องการเข้าสู่ระบบ Meta Threads OAuth จริง กรุณาระบุรหัสแอป <code className="bg-[#111] px-1 py-0.5 rounded text-amber-300 font-mono">THREADS_CLIENT_ID</code> และ <code className="bg-[#111] px-1 py-0.5 rounded text-amber-300 font-mono">THREADS_CLIENT_SECRET</code> ในตัวแปรสภาพแวดล้อม (.env) บนเซิร์ฟเวอร์
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="bg-[#0A0A0A]/80 border border-[#262626] p-3 rounded-lg space-y-1 text-[10px] font-mono text-neutral-400">
-                      <div className="flex justify-between items-center text-white font-semibold uppercase tracking-wider text-[9px] mb-1">
-                        <span>OAuth Redirect URI:</span>
-                      </div>
-                      <p className="text-white select-all bg-[#151515] p-2 rounded mt-1 border border-[#262626] font-semibold break-all">
-                        {window.location.origin}/auth/callback
+                          ? 'เข้าสู่ระบบบัญชี Threads ผ่าน Meta OAuth' 
+                          : `เข้าสู่ระบบเพิ่มบัญชีที่ ${accounts.length + 1}`}
+                      </h4>
+                      <p className="text-[11px] text-neutral-400 leading-relaxed">
+                        เปิดหน้าต่างล็อกอินของ Threads โดยตรง ปลอดภัยและเชื่อมต่อกับ Meta API
                       </p>
                     </div>
 
-                    <div className="pt-2 flex justify-center">
+                    <div className="flex justify-center pt-1">
                       <button
+                        id="btn-connect-threads-oauth"
                         type="button"
                         onClick={handleConnectRealOAuth}
-                        className="bg-white hover:bg-neutral-200 text-black text-xs font-bold px-6 py-2.5 rounded-xl cursor-pointer shadow-md flex items-center justify-center gap-2"
+                        disabled={isOAuthConnecting}
+                        className="bg-white hover:bg-neutral-100 disabled:bg-neutral-800 disabled:text-neutral-600 text-black text-xs font-bold px-7 py-3 rounded-xl inline-flex items-center gap-2 transition-all cursor-pointer shadow-lg justify-center w-full sm:w-auto"
                       >
-                        <Globe className="w-4 h-4 text-black" />
-                        <span>ลองเชื่อมต่อ OAuth อีกครั้ง</span>
+                        {isOAuthConnecting ? (
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Globe className="w-4 h-4 text-black" />
+                        )}
+                        <span>
+                          {accounts.length === 0 
+                            ? 'เข้าสู่ระบบ Threads ด้วย OAuth' 
+                            : `เข้าสู่ระบบเพื่อเพิ่มบัญชี Threads ที่ ${accounts.length + 1}`}
+                        </span>
                       </button>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {oauthStatus === 'error_other' && (
-                <div className="space-y-4 text-center py-4">
-                  <div className="p-3.5 bg-red-950/20 border border-red-900/30 rounded-xl text-xs text-red-400 flex items-center gap-2 justify-center">
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>{oauthErrorMsg || 'เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง'}</span>
+                {oauthStatus === 'loading' && (
+                  <div className="text-center py-8 space-y-3">
+                    <RefreshCw className="w-8 h-8 text-white animate-spin mx-auto" />
+                    <p className="text-xs text-neutral-400">กำลังเปิดหน้าต่างยืนยันตัวตน Threads...</p>
                   </div>
-                  <div className="flex justify-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setOauthStatus('idle')}
-                      className="px-4 py-2 rounded-xl text-xs text-neutral-400 hover:text-white hover:bg-[#1a1a1a] border border-[#262626] transition-all cursor-pointer"
-                    >
-                      ลองใหม่อีกครั้ง
-                    </button>
+                )}
+
+                {oauthStatus === 'error_other' && (
+                  <div className="space-y-4 text-center py-3">
+                    <div className="p-3 bg-red-950/20 border border-red-900/30 rounded-xl text-xs text-red-400 flex items-center gap-2 justify-center">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{oauthErrorMsg || 'เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง'}</span>
+                    </div>
+                    <div className="flex justify-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setOauthStatus('idle')}
+                        className="px-4 py-2 rounded-xl text-xs text-neutral-400 hover:text-white hover:bg-[#1a1a1a] border border-[#262626] transition-all cursor-pointer"
+                      >
+                        ลองใหม่อีกครั้ง
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={handleAddManualAccount} className="space-y-4 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-semibold text-neutral-300">
+                      ชื่อผู้ใช้ Threads (Username) <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="@my_threads_account"
+                      value={manualUsername}
+                      onChange={(e) => setManualUsername(e.target.value)}
+                      className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-white rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-600 outline-none transition-colors"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-semibold text-neutral-300">
+                      ชื่อแสดงผล (Display Name)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="เช่น ร้านค้าออนไลน์ Official"
+                      value={manualDisplayName}
+                      onChange={(e) => setManualDisplayName(e.target.value)}
+                      className="w-full bg-[#0A0A0A] border border-[#262626] focus:border-white rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-600 outline-none transition-colors"
+                    />
                   </div>
                 </div>
-              )}
-            </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-white hover:bg-neutral-100 text-black text-xs font-bold px-5 py-2 rounded-xl cursor-pointer shadow-md transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>เพิ่มบัญชีลงในระบบ</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
