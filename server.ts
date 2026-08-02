@@ -99,7 +99,7 @@ async function startServer() {
       });
     }
 
-    const authUrl = `https://threads.net/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=threads_basic,threads_content_publish&response_type=code&prompt=consent`;
+    const authUrl = `https://www.threads.net/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=threads_basic,threads_content_publish&response_type=code&prompt=consent`;
     res.json({ url: authUrl });
   });
 
