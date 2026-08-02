@@ -102,12 +102,13 @@ export default function ThreadsBackground() {
         ctx.lineWidth = 1.5;
         const centerX = width * 0.7;
         const centerY = height * 0.5;
-        const radius = Math.min(width, height) * 0.35;
+        const baseRadius = Math.min(width, height) * 0.35;
+        const currentRadius = Math.max(1, baseRadius + Math.sin(curve.phase) * 15);
         
         ctx.arc(
           centerX,
           centerY,
-          radius + Math.sin(curve.phase) * 15,
+          currentRadius,
           0,
           Math.PI * 2
         );
